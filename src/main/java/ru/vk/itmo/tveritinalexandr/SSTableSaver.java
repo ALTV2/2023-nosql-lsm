@@ -13,45 +13,71 @@ import java.util.SortedMap;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class SSTableSaver {
-    private final Path ssTableFilePath;
     private final SortedMap<MemorySegment, Entry<MemorySegment>> memTable;
-    private long offset;
+    private final Path ssTableFilePath;
+    private final Path offsetPath;
+    private long SSTFileOffset;
+    private long offsetFileOffset;
 
-    public SSTableSaver(Path ssTableFilePath, SortedMap<MemorySegment, Entry<MemorySegment>> memTable) {
+    public SSTableSaver(Path ssTableFilePath, Path offsetPath, SortedMap<MemorySegment, Entry<MemorySegment>> memTable) {
         this.ssTableFilePath = ssTableFilePath;
+        this.offsetPath = offsetPath;
         this.memTable = memTable;
     }
 
     public void save() throws IOException {
-        try (FileChannel channel = FileChannel.open(ssTableFilePath,
+        try (FileChannel SSTChannel = FileChannel.open(ssTableFilePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.CREATE);
-             Arena arena = Arena.ofConfined()
+
+             FileChannel OffsetChannel = FileChannel.open(offsetPath,
+                     StandardOpenOption.READ,
+                     StandardOpenOption.WRITE,
+                     StandardOpenOption.TRUNCATE_EXISTING,
+                     StandardOpenOption.CREATE);
+
+             Arena SSTArena = Arena.ofConfined();
+             Arena OffsetArena = Arena.ofConfined()
         ) {
-            MemorySegment memorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, calcFileSize(memTable), arena);
-            offset = 0;
+            SSTFileOffset = 0;
+            offsetFileOffset = 0;
+
+            MemorySegment offsetMemorySegment = OffsetChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcOffsetFileSize(memTable), OffsetArena);
+            MemorySegment SSTMemorySegment = SSTChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcFileSize(memTable), SSTArena);
+
             for (var entry : memTable.values()) {
-                fillMemorySegment(entry.key(), memorySegment);
-                fillMemorySegment(entry.value(), memorySegment);
+                fillSSTMemorySegment(entry.key(), SSTMemorySegment, offsetMemorySegment);
+                fillSSTMemorySegment(entry.value(), SSTMemorySegment, offsetMemorySegment);
             }
-            memorySegment.load();
+
+            SSTMemorySegment.load();
+            offsetMemorySegment.load();
         }
+    }
+
+    private long calcOffsetFileSize(SortedMap<MemorySegment, Entry<MemorySegment>> inMemoryDB) {
+        return 2L * Long.BYTES * inMemoryDB.size();
     }
 
     private long calcFileSize(SortedMap<MemorySegment, Entry<MemorySegment>> inMemoryDB) {
         long size = 0;
         for (var entry : inMemoryDB.values()) {
-            size += 2 * Long.BYTES + entry.key().byteSize() + entry.value().byteSize();
+            size += (entry.key().byteSize() + entry.value().byteSize());
         }
         return size;
     }
 
-    private void fillMemorySegment(MemorySegment memorySegment, MemorySegment mapped) {
-        long size = memorySegment.byteSize();
-        mapped.set(JAVA_LONG_UNALIGNED, offset, size);
-        offset += Long.BYTES;
-        MemorySegment.copy(memorySegment, 0, mapped, offset, size);
-        offset += size;
+    private void fillSSTMemorySegment(MemorySegment memTablememorySegment, MemorySegment SSTMemorySegment, MemorySegment offsetMemorySegment) {
+        long size = memTablememorySegment.byteSize();
+        MemorySegment.copy(memTablememorySegment, 0, SSTMemorySegment, SSTFileOffset, size);
+        saveOffsetInfo(offsetMemorySegment, size);
+        SSTFileOffset += size;
+    }
+
+    private void saveOffsetInfo(MemorySegment offsetMemorySegment, long size) {
+        offsetMemorySegment.set(JAVA_LONG_UNALIGNED, offsetFileOffset, size);
+        offsetFileOffset += Long.BYTES;
     }
 }

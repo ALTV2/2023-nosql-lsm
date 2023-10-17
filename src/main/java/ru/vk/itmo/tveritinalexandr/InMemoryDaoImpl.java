@@ -20,10 +20,10 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     private final SSTableLoader loader;
 
     public InMemoryDaoImpl(Config config) {
-        Path storagePath = config.basePath().resolve("storage.sst");
-        saver = new SSTableSaver(storagePath, dataBase);
-        loader = new SSTableLoader(storagePath);
-        loader.load();
+        Path storagePath = config.basePath().resolve("storage_1.sst");
+        Path offsetPath = config.basePath().resolve("storage_1.offset");
+        saver = new SSTableSaver(storagePath, offsetPath, dataBase);
+        loader = new SSTableLoader(storagePath, offsetPath);
     }
 
     @Override

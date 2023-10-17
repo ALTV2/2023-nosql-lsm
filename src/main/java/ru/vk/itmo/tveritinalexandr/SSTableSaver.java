@@ -72,12 +72,12 @@ public class SSTableSaver {
     private void fillSSTMemorySegment(MemorySegment memTablememorySegment, MemorySegment SSTMemorySegment, MemorySegment offsetMemorySegment) {
         long size = memTablememorySegment.byteSize();
         MemorySegment.copy(memTablememorySegment, 0, SSTMemorySegment, SSTFileOffset, size);
-        saveOffsetInfo(offsetMemorySegment, size);
+        saveOffsetInfo(offsetMemorySegment, SSTFileOffset);
         SSTFileOffset += size;
     }
 
-    private void saveOffsetInfo(MemorySegment offsetMemorySegment, long size) {
-        offsetMemorySegment.set(JAVA_LONG_UNALIGNED, offsetFileOffset, size);
+    private void saveOffsetInfo(MemorySegment offsetMemorySegment, long offset) {
+        offsetMemorySegment.set(JAVA_LONG_UNALIGNED, offsetFileOffset, offset);
         offsetFileOffset += Long.BYTES;
     }
 }

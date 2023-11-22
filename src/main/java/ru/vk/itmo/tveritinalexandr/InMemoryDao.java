@@ -30,7 +30,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(Loader.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -98,13 +98,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(path, diskStorage, getInMemory(null, null));
-    }
-
-    // Не был уверен, допускаются ли конкурентные вызовы flush
-    @Override
-    public synchronized void flush() throws IOException {
-        DiskStorage.save(path, storage.values());
+        DiskStorage.compact(path, this::all);
     }
 
     @Override
@@ -116,7 +110,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            flush();
+            DiskStorage.saveNextSSTable(path, storage.values());
         }
     }
 }

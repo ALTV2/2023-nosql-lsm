@@ -6,18 +6,25 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage;
+    private final DiskStorage diskStorage;
+    private final Arena readArena = Arena.ofConfined();
 
-    private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage = new ConcurrentSkipListMap<>(comparator);
-
-    public InMemoryDao(Config config) {
+    public InMemoryDao(Config config) throws IOException {
+        Path path = config.basePath().resolve("data");
+        this.diskStorage = new DiskStorage(path, readArena);
+        Files.createDirectories(path);
+        inMemoryStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     @Override
@@ -47,6 +54,27 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
 
+        final MemorySegment value;
+        try {
+            value = diskStorage.getFromSingleSst(key);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        if (value != null) {
+            return new Entry<MemorySegment>() {
+                @Override
+                public MemorySegment key() {
+                    return key;
+                }
+
+                @Override
+                public MemorySegment value() {
+                    return value;
+                }
+            };
+        }
+
         return null;
     }
 
@@ -67,7 +95,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        Dao.super.close();
+        diskStorage.saveNewSst(inMemoryStorage.values());
+
+        if (readArena.scope().isAlive()) {
+            readArena.close();
+        }
     }
 
     public static int compare(MemorySegment memorySegment, MemorySegment memorySegment1) {
